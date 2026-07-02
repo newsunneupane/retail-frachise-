@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums (already created in Postgres by the earlier migration) ----------
+
+enum UserRole {
+  customer
+  store_manager
+  admin
+
+  @@map("user_role")
+}
+
+enum OrderStatus {
+  pending
+  paid
+  in_transit
+  ready_for_pickup
+  completed
+  cancelled
+
+  @@map("order_status")
+}
+
+enum OrderType {
+  delivery
+  pickup
+
+  @@map("order_type")
+}
+
+// ---------- Profiles (extends Supabase auth.users; auth.users itself is not
+// managed by Prisma — it lives in the `auth` schema and is handled by
+// Supabase Auth) ----------
+
+model Profile {
+  id        String   @id @db.Uuid
+  email     String   @unique
+  role      UserRole @default(customer)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  orders    Order[]
+  auditLogs AuditLog[]
+
+  @@map("profiles")
+}
+
+model Category {
+  id       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name     String    @unique
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  description String?
+  sku         String   @unique
+  basePrice   Decimal  @map("base_price") @db.Decimal(10, 2)
+  discount    Decimal  @default(0) @db.Decimal(5, 2)
+  categoryId  String   @map("category_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  category    Category    @relation(fields: [categoryId], references: [id])
+  inventories Inventory[]
+  orderItems  OrderItem[]
+
+  @@map("products")
+}
+
+model StoreLocation {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name    String
+  address String
+
+  inventories Inventory[]
+  orders      Order[]
+
+  @@map("store_locations")
+}
+
+model Inventory {
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId       String @map("product_id") @db.Uuid
+  storeLocationId String @map("store_location_id") @db.Uuid
+  stockCount      Int    @default(0) @map("stock_count")
+  lowStockAlert   Int    @default(5) @map("low_stock_alert")
+
+  product       Product       @relation(fields: [productId], references: [id])
+  storeLocation StoreLocation @relation(fields: [storeLocationId], references: [id])
+
+  @@unique([productId, storeLocationId])
+  @@map("inventory")
+}
+
+model Order {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  status          OrderStatus @default(pending)
+  type            OrderType   @default(delivery)
+  storeLocationId String?     @map("store_location_id") @db.Uuid
+  totalAmount     Decimal     @default(0) @map("total_amount") @db.Decimal(10, 2)
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  user          Profile        @relation(fields: [userId], references: [id])
+  storeLocation StoreLocation? @relation(fields: [storeLocationId], references: [id])
+  items         OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId   String  @map("order_id") @db.Uuid
+  productId String  @map("product_id") @db.Uuid
+  quantity  Int
+  pricePaid Decimal @map("price_paid") @db.Decimal(10, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+model AuditLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  action    String
+  details   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id])
+
+  @@map("audit_log")
+}
